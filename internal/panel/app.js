@@ -4,6 +4,7 @@ const LS_KEY = 'wb2api.key', LS_THEME = 'wb2api.theme';
 let theme = localStorage.getItem(LS_THEME) || 'auto';   // auto | light | dark
 let view = 'accounts';
 let overviewData = null, cfgLoaded = null;
+let channelCatalog = [], selectedChannel = 'wbp-cn';
 let logPin = true, loginState = null, loginTimer = null;
 let refTimer = null;
 
@@ -143,10 +144,48 @@ document.querySelectorAll('.nav a').forEach(a => a.onclick = e => { e.preventDef
 go((location.hash || '#accounts').slice(1) in TITLES ? (location.hash || '#accounts').slice(1) : 'accounts');
 
 /* ── 账号池 ───────────────────────────────────────────────────────── */
+function channelOfAccount(s) {
+  return s.channel || (s.realm === 'global' ? 'wbp-global' : 'wbp-cn');
+}
+function selectedChannelInfo() {
+  return channelCatalog.find(c => c.id === selectedChannel) || null;
+}
+function renderChannelTabs() {
+  const host = $('channelTabs');
+  if (!host) return;
+  host.innerHTML = channelCatalog.map(c =>
+    '<button class="xs chip ' + (c.id === selectedChannel ? 'on' : '') + '" data-channel="' + esc(c.id) + '">' + esc(c.name) + '</button>'
+  ).join('');
+  host.querySelectorAll('[data-channel]').forEach(b => b.onclick = () => {
+    selectedChannel = b.dataset.channel;
+    renderChannelTabs();
+    renderChannelActions();
+    renderAccounts((overviewData?.accounts || []).filter(s => channelOfAccount(s) === selectedChannel));
+  });
+}
+function renderChannelActions() {
+  const host = $('channelActions');
+  if (!host) return;
+  const c = selectedChannelInfo();
+  const has = cap => !!(c && c.menu && c.menu.some(m => m.capability === cap));
+  const btn = (id, label) => '<button class="xs" id="' + id + '">' + label + '</button>';
+  host.innerHTML = (has('ops.checkin') ? btn('btnCheckinAll', '全部签到') : '') +
+    (has('ops.tasks') ? btn('btnTravelAll', '旅行巡检') + btn('btnActivityAll', '活跃上报') : '') +
+    (has('ops.keepalive') ? btn('btnKeepaliveAll', '全部保活') : '');
+  if ($('btnCheckinAll')) $('btnCheckinAll').onclick = () => runChannelAction('checkin_all', '全部签到已开始，结果见日志');
+  if ($('btnKeepaliveAll')) $('btnKeepaliveAll').onclick = () => runChannelAction('keepalive_all', '全部保活已开始，结果见日志');
+  if ($('btnTravelAll')) $('btnTravelAll').onclick = () => runChannelAction('travel_all', '旅行巡检已开始（含领养链路），结果见日志');
+  if ($('btnActivityAll')) $('btnActivityAll').onclick = () => runChannelAction('activity_all', '活跃上报已开始，结果见日志');
+}
+async function runChannelAction(path, message) {
+  try { await api(path + '?channel=' + encodeURIComponent(selectedChannel), { method: 'POST' }); toast(message, 'ok'); }
+  catch (e) { toast(e.message, 'err'); }
+}
 function renderAccounts(list) {
   const tb = $('accBody');
   if (!list.length) {
-    tb.innerHTML = '<tr><td colspan="9"><div class="empty"><div class="big">账号池是空的</div>点击右上角「添加账号」，用浏览器登录一个 WorkBuddy 账号</div></td></tr>';
+    const c = selectedChannelInfo();
+    tb.innerHTML = '<tr><td colspan="9"><div class="empty"><div class="big">' + esc(c ? c.name : '当前渠道') + '暂无账号</div>点击右上角「添加账号」，接入该渠道账号</div></td></tr>';
     return;
   }
   // 有总额度（credits_total）→ 进度条按自身 剩余/总额 百分比；旧数据无总额 → 退回池内最高=100%
@@ -200,9 +239,9 @@ function renderAccounts(list) {
       '</span></td>' +
       '<td class="num" style="color:var(--ink-3)">' + ago(s.last_success) + '</td>' +
       '<td class="acts">' +
-        '<button class="xs ghost" data-a="checkin" data-u="' + esc(s.uid) + '">签到</button>' +
+        ((selectedChannelInfo()?.menu || []).some(m => m.capability === 'ops.checkin') ? '<button class="xs ghost" data-a="checkin" data-u="' + esc(s.uid) + '">签到</button>' : '') +
         '<button class="xs ghost" data-a="balance" data-u="' + esc(s.uid) + '">余额</button>' +
-        '<button class="xs ghost" data-a="tasks" data-u="' + esc(s.uid) + '">任务</button>' +
+        ((selectedChannelInfo()?.menu || []).some(m => m.capability === 'ops.tasks') ? '<button class="xs ghost" data-a="tasks" data-u="' + esc(s.uid) + '">任务</button>' : '') +
         (frozen ? '<button class="xs primary" data-a="revive" data-u="' + esc(s.uid) + '">解冻</button>'
                 : '<button class="xs ghost" data-a="disable" data-u="' + esc(s.uid) + '">禁用</button>') +
         '<button class="xs ghost danger" data-a="remove" data-u="' + esc(s.uid) + '">移除</button>' +
@@ -231,7 +270,16 @@ async function loadOverview(quiet) {
     $('accNote').textContent = d.in_flight_full ? d.in_flight_full + ' 个账号在途占满' : '';
     const up = Math.floor(d.uptime_sec);
     $('subMeta').textContent = '运行 ' + (up >= 86400 ? Math.floor(up / 86400) + ' 天 ' : '') + Math.floor(up % 86400 / 3600) + ' 时 ' + Math.floor(up % 3600 / 60) + ' 分';
-    renderAccounts(d.accounts || []);
+    if (!channelCatalog.length) {
+      try {
+        const cd = await api('channels');
+        channelCatalog = cd.channels || [];
+        if (!channelCatalog.some(c => c.id === selectedChannel)) selectedChannel = channelCatalog[0]?.id || 'wbp-cn';
+        renderChannelTabs();
+        renderChannelActions();
+      } catch (e) { if (!quiet) toast('读取渠道目录失败：' + e.message, 'err'); }
+    }
+    renderAccounts((d.accounts || []).filter(s => channelOfAccount(s) === selectedChannel));
   } catch (e) { if (!quiet) toast(e.message, 'err'); }
 }
 
@@ -264,23 +312,6 @@ $('accBody').addEventListener('click', async ev => {
   } catch (e) { toast(e.message, 'err'); }
   finally { b.disabled = false; loadOverview(true); }
 });
-
-$('btnCheckinAll').onclick = async () => {
-  try { await api('checkin_all', { method: 'POST' }); toast('全部签到已开始，结果见日志', 'ok'); }
-  catch (e) { toast(e.message, 'err'); }
-};
-$('btnKeepaliveAll').onclick = async () => {
-  try { await api('keepalive_all', { method: 'POST' }); toast('全部保活已开始，结果见日志', 'ok'); }
-  catch (e) { toast(e.message, 'err'); }
-};
-$('btnTravelAll').onclick = async () => {
-  try { await api('travel_all', { method: 'POST' }); toast('旅行巡检已开始（含领养链路），结果见日志', 'ok'); }
-  catch (e) { toast(e.message, 'err'); }
-};
-$('btnActivityAll').onclick = async () => {
-  try { await api('activity_all', { method: 'POST' }); toast('活跃上报已开始，结果见日志', 'ok'); }
-  catch (e) { toast(e.message, 'err'); }
-};
 
 /* ── 模型 ─────────────────────────────────────────────────────────── */
 /* 实测上限标注：scripts/probe_max_tokens.py --panel-out 写入探测结果，

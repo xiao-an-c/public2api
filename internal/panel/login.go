@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/xiao-an-c/public2api/internal/auth"
+	"github.com/xiao-an-c/public2api/internal/channel"
 )
 
 const (
@@ -119,11 +120,16 @@ func (p *Panel) loginStart(w http.ResponseWriter, r *http.Request) {
 	realm := "cn"
 	if r.Body != nil {
 		var reqBody struct {
-			Realm string `json:"realm"`
+			Realm   string `json:"realm"`
+			Channel string `json:"channel"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<12)).Decode(&reqBody); err == nil {
-			if reqBody.Realm == "global" {
+			if reqBody.Realm == "global" || reqBody.Channel == string(channel.WBPGlobal) {
 				realm = "global"
+			}
+			if reqBody.Channel == string(channel.Grok) {
+				writeErr(w, http.StatusNotImplemented, "Grok 登录尚未接入，请先使用对应凭据导入流程")
+				return
 			}
 		}
 	}

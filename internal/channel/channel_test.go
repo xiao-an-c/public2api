@@ -21,8 +21,8 @@ func TestCatalogIsSelfConsistent(t *testing.T) {
 }
 
 // TestKindSharedByTwoChannels 钉住一条建模决定：WorkBuddy 国内与国际共用同一个
-// Kind。两边是两套账号体系、但账号类型完全相同（同 OAuth 流程、同凭据结构、
-// 同私有协议），差异只在端点，而端点属于渠道配置。
+// Kind。两边是两套凭据形态相同的账号体系，差异在端点与维护能力：端点属于渠道配置，
+// 维护能力可因渠道不同而不同。
 //
 // 如果哪天有人给 KindWBP 加上了渠道后缀，这个测试会红——那时要问的不是
 // 「测试怎么改」，而是「渠道抽象是不是漏了」。
@@ -35,16 +35,20 @@ func TestKindSharedByTwoChannels(t *testing.T) {
 	if len(owners) != 2 {
 		t.Fatalf("KindWBP 的归属渠道数 = %d，期望 2（wbp-cn 与 wbp-global）", len(owners))
 	}
-	// 两个渠道的 wbp 能力集合必须完全一致——不一致就说明差异漏进了能力层。
+	// 两边凭据接入与基础业务能力保持一致；维护任务能力必须按真实上游能力分开。
 	a, _ := reg.KindSpec(WBPChina, KindWBP)
 	b, _ := reg.KindSpec(WBPGlobal, KindWBP)
-	if len(a.Capabilities) != len(b.Capabilities) {
-		t.Fatalf("国内 %d 项能力 vs 国际 %d 项，两边应当一致",
-			len(a.Capabilities), len(b.Capabilities))
+	for _, cap := range []Capability{CapOAuthLogin, CapRefresh, CapQuota, CapKeepalive, CapChat, CapMedia} {
+		if !a.Has(cap) || !b.Has(cap) {
+			t.Errorf("国内/国际都应具备基础能力 %s：cn=%v global=%v", cap, a.Has(cap), b.Has(cap))
+		}
 	}
-	for _, cap := range a.Capabilities {
-		if !b.Has(cap) {
-			t.Errorf("国际版缺少国内版有的能力 %s", cap)
+	for _, cap := range []Capability{CapCheckin, CapTasks} {
+		if !a.Has(cap) {
+			t.Errorf("国内版应具备能力 %s", cap)
+		}
+		if b.Has(cap) {
+			t.Errorf("国际版当前没有对应端点，不应声明能力 %s", cap)
 		}
 	}
 }
@@ -86,6 +90,14 @@ func TestRegistryRejectsBadCatalogs(t *testing.T) {
 			input: []Channel{{ID: Grok, Name: "x",
 				Kinds: []KindSpec{{Kind: KindGrokWeb, Name: "web"}}}},
 			wantSub: "没有声明任何能力",
+		},
+		{
+			name: "同渠道重复账号类型",
+			input: []Channel{{ID: Grok, Name: "x", Kinds: []KindSpec{
+				{Kind: KindGrokWeb, Name: "web", Capabilities: []Capability{CapChat}},
+				{Kind: KindGrokWeb, Name: "web", Capabilities: []Capability{CapQuota}},
+			}}},
+			wantSub: "重复声明账号类型",
 		},
 		{
 			name: "能力重复声明",

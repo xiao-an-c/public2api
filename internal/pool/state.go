@@ -8,8 +8,19 @@ import (
 	"time"
 
 	"github.com/xiao-an-c/public2api/internal/auth"
+	"github.com/xiao-an-c/public2api/internal/channel"
 	"github.com/xiao-an-c/public2api/internal/logfmt"
 )
+
+func channelForAuth(a *auth.Auth) string {
+	if a == nil {
+		return ""
+	}
+	if a.Realm() == "global" {
+		return string(channel.WBPGlobal)
+	}
+	return string(channel.WBPChina)
+}
 
 func (p *Pool) Disable(uid, reason string) {
 	p.mu.Lock()
@@ -466,6 +477,7 @@ func (p *Pool) statusOf(uid string, e *entry) Status {
 		// 普通软冷却（无模型级表）/硬冷却不产生台账（零回归）。
 		RateLimitedModels: p.rateLimitedModelsLocked(e, now),
 		Realm:             e.a.Realm(),
+		Channel:           channelForAuth(e.a),
 		Nickname:          e.a.Nickname,
 		Credits:           e.credits,
 		CreditsTotal:      e.creditsTotal,

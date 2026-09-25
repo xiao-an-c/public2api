@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xiao-an-c/public2api/internal/auth"
+	"github.com/xiao-an-c/public2api/internal/channel"
 	"github.com/xiao-an-c/public2api/internal/httpauth"
 	"github.com/xiao-an-c/public2api/internal/livecfg"
 	"github.com/xiao-an-c/public2api/internal/pool"
@@ -61,6 +63,10 @@ type Config struct {
 	// 写入；空或文件不存在 = model_probes 端点返回空集，面板不显示任何实测标注）。
 	// 只读展示：网关不解析、不依赖其内容做任何路由/出站决策。
 	ProbeFile string
+
+	// Channels 是面板的渠道目录。面板菜单和账号操作门控都从这里读取；
+	// nil 时使用内置目录，保证旧测试/调用方零配置仍可运行。
+	Channels *channel.Registry
 }
 
 // Panel 管理面板 handler。挂载方式：外层 mux Handle("/panel/", panel)，
@@ -125,6 +131,13 @@ type loginSession struct {
 
 // New 构建面板。
 func New(cfg Config) *Panel {
+	if cfg.Channels == nil {
+		reg, err := channel.NewRegistry(channel.Catalog()...)
+		if err != nil {
+			panic("内置渠道目录自检失败: " + err.Error())
+		}
+		cfg.Channels = reg
+	}
 	if cfg.RedisMode == "" {
 		cfg.RedisMode = "noop"
 	}
@@ -146,6 +159,7 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("GET /panel/{$}", p.index)
 	p.mux.HandleFunc("GET /panel/app.js", p.appScript)
 	p.mux.HandleFunc("GET /panel/api/overview", p.withAuth(p.overview))
+	p.mux.HandleFunc("GET /panel/api/channels", p.withAuth(p.channels))
 	p.mux.HandleFunc("GET /panel/api/logs", p.withAuth(p.logsHandler))
 	p.mux.HandleFunc("GET /panel/api/models", p.withAuth(p.models))
 	p.mux.HandleFunc("POST /panel/api/login/start", p.withAuth(p.loginStart))
@@ -399,6 +413,41 @@ func (p *Panel) modelProbes(w http.ResponseWriter, r *http.Request) {
 // 账号运维
 // ---------------------------------------------------------------------------
 
+// accountChannel 返回账号对应的 WorkBuddy 渠道。旧 auth 文件没有 channel 字段，
+// 先用持久化 realm 兼容映射；真正的复合账号键迁移仍属于后续存储工作。
+func accountChannel(a *auth.Auth) channel.ChannelID {
+	if a != nil && a.Realm() == "global" {
+		return channel.WBPGlobal
+	}
+	return channel.WBPChina
+}
+
+func realmFromChannel(r *http.Request, reg *channel.Registry) string {
+	id := channel.ChannelID(r.URL.Query().Get("channel"))
+	if id == "" {
+		id = channel.WBPChina
+	}
+	if c, ok := reg.Get(id); ok {
+		return c.Partition
+	}
+	return ""
+}
+
+// requireAccountCapability 是后端维护入口的最后一道门：前端隐藏按钮不是安全边界。
+// 当前目录把国内签到/任务与国际账号明确分开，避免国际账号误打 CN 端点。
+func (p *Panel) requireAccountCapability(w http.ResponseWriter, a *auth.Auth, cap channel.Capability) bool {
+	if a == nil {
+		writeErr(w, http.StatusNotFound, "account not found")
+		return false
+	}
+	c, ok := p.cfg.Channels.Get(accountChannel(a))
+	if !ok || !c.Has(cap) {
+		writeErr(w, http.StatusNotImplemented, "当前渠道不支持该维护能力")
+		return false
+	}
+	return true
+}
+
 // accountRevive 手动复活：清禁用 + 冷却 + 熔断（运维口径无条件恢复）。
 func (p *Panel) accountRevive(w http.ResponseWriter, r *http.Request) {
 	uid := r.PathValue("uid")
@@ -428,8 +477,7 @@ func (p *Panel) accountDisable(w http.ResponseWriter, r *http.Request) {
 func (p *Panel) accountCheckin(w http.ResponseWriter, r *http.Request) {
 	uid := r.PathValue("uid")
 	a := p.cfg.Pool.AuthByUID(uid)
-	if a == nil {
-		writeErr(w, http.StatusNotFound, "account not found")
+	if !p.requireAccountCapability(w, a, channel.CapCheckin) {
 		return
 	}
 	checkinMsg := ""
@@ -503,8 +551,8 @@ func (p *Panel) checkinAll(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "scheduler not available")
 		return
 	}
-	go p.cfg.Scheduler.RunCheckinNow()
-	log.Printf("panel: 手动全量签到已触发（含猫猫旅行）")
+	go p.cfg.Scheduler.RunCheckinForRealm(realmFromChannel(r, p.cfg.Channels))
+	log.Printf("panel: 手动渠道签到已触发 channel=%s", r.URL.Query().Get("channel"))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "started": true})
 }
 
@@ -514,8 +562,8 @@ func (p *Panel) travelAll(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "scheduler not available")
 		return
 	}
-	go p.cfg.Scheduler.RunTravelNow()
-	log.Printf("panel: 手动全量旅行巡检已触发")
+	go p.cfg.Scheduler.RunTravelForRealm(realmFromChannel(r, p.cfg.Channels))
+	log.Printf("panel: 手动渠道旅行巡检已触发")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "started": true})
 }
 
@@ -525,8 +573,8 @@ func (p *Panel) activityAll(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "scheduler not available")
 		return
 	}
-	go p.cfg.Scheduler.RunActivityNow()
-	log.Printf("panel: 手动全量活跃上报已触发")
+	go p.cfg.Scheduler.RunActivityForRealm(realmFromChannel(r, p.cfg.Channels))
+	log.Printf("panel: 手动渠道活跃上报已触发")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "started": true})
 }
 
@@ -536,8 +584,8 @@ func (p *Panel) keepaliveAll(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "scheduler not available")
 		return
 	}
-	go p.cfg.Scheduler.RunKeepaliveNow()
-	log.Printf("panel: 手动全量保活已触发")
+	go p.cfg.Scheduler.RunKeepaliveForRealm(realmFromChannel(r, p.cfg.Channels))
+	log.Printf("panel: 手动渠道保活已触发")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "started": true})
 }
 

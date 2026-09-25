@@ -175,7 +175,7 @@ func TestChannelsEndpointExposesCatalog(t *testing.T) {
 }
 
 // TestChannelsMenuIsDerivedFromCapabilities 钉住「菜单由能力派生」在 API 上可见：
-// WorkBuddy 有签到与任务、没有出口；Grok 有出口、没有签到与任务。
+// WorkBuddy 国内有签到与任务；国际版当前没有对应端点；Grok 有出口、没有签到与任务。
 //
 // 菜单若哪天变成前端配置，这条会红。
 func TestChannelsMenuIsDerivedFromCapabilities(t *testing.T) {
@@ -209,6 +209,16 @@ func TestChannelsMenuIsDerivedFromCapabilities(t *testing.T) {
 	}
 	if _, has := cn["ops.egress"]; has {
 		t.Errorf("wbp-cn 不该有出口菜单，实际：%v", cn)
+	}
+
+	global := menuOf("wbp-global")
+	for _, cap := range []string{"ops.checkin", "ops.tasks"} {
+		if _, has := global[cap]; has {
+			t.Errorf("wbp-global 当前不应有 %s 菜单，实际：%v", cap, global)
+		}
+	}
+	if global["ops.keepalive"] != "保活" {
+		t.Errorf("wbp-global 应当保留保活菜单，实际：%v", global)
 	}
 
 	gk := menuOf("grok")

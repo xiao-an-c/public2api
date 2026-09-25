@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xiao-an-c/public2api/internal/auth"
+	"github.com/xiao-an-c/public2api/internal/channel"
 )
 
 // acceptBatchGap 批量接受的批间节流（对齐脚本 1.05s 口径，避免上游风控）。
@@ -30,7 +31,7 @@ func (p *Panel) accountByUID(w http.ResponseWriter, uid string) *auth.Auth {
 func (p *Panel) accountTasks(w http.ResponseWriter, r *http.Request) {
 	uid := r.PathValue("uid")
 	a := p.accountByUID(w, uid)
-	if a == nil {
+	if a == nil || !p.requireAccountCapability(w, a, channel.CapTasks) {
 		return
 	}
 	tasks, err := p.cfg.Upstream.ListTasks(a)
@@ -59,7 +60,7 @@ func (p *Panel) accountTasks(w http.ResponseWriter, r *http.Request) {
 func (p *Panel) accountTaskAccept(w http.ResponseWriter, r *http.Request) {
 	uid := r.PathValue("uid")
 	a := p.accountByUID(w, uid)
-	if a == nil {
+	if a == nil || !p.requireAccountCapability(w, a, channel.CapTasks) {
 		return
 	}
 	var body struct {
@@ -86,7 +87,7 @@ func (p *Panel) accountTaskAccept(w http.ResponseWriter, r *http.Request) {
 func (p *Panel) taskAcceptAll(w http.ResponseWriter, r *http.Request) {
 	uid := r.PathValue("uid")
 	a := p.accountByUID(w, uid)
-	if a == nil {
+	if a == nil || !p.requireAccountCapability(w, a, channel.CapTasks) {
 		return
 	}
 	tasks, err := p.cfg.Upstream.ListTasks(a)
@@ -153,7 +154,7 @@ func (p *Panel) taskAcceptAll(w http.ResponseWriter, r *http.Request) {
 func (p *Panel) accountTaskClaim(w http.ResponseWriter, r *http.Request) {
 	uid := r.PathValue("uid")
 	a := p.accountByUID(w, uid)
-	if a == nil {
+	if a == nil || !p.requireAccountCapability(w, a, channel.CapTasks) {
 		return
 	}
 	var body struct {

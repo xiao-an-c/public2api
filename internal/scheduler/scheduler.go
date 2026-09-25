@@ -287,7 +287,7 @@ func (s *Scheduler) runBatch(ctx context.Context, kinds []taskKind) {
 			case taskTravel:
 				s.RunTravelNow()
 			case taskActivity:
-				s.runActivity(ctx)
+				s.runActivity(ctx, "")
 			case taskKeepalive:
 				s.RunKeepaliveNow()
 			case taskBlackcat:
@@ -315,12 +315,19 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 }
 
 // RunCheckinNow 立即对所有账号执行签到 + 余额刷新 + 解冻。
-// 冷却中的账号也参与（签到就是为了解冻它们）；禁用的跳过。
+func (s *Scheduler) RunCheckinNow() { s.runCheckin("") }
+
+// RunCheckinForRealm 只处理指定 WorkBuddy 分区；空串保持旧的全量语义。
+func (s *Scheduler) RunCheckinForRealm(realm string) { s.runCheckin(realm) }
+
+// runCheckin 冷却中的账号也参与（签到就是为了解冻它们）；禁用的跳过。
 // 旅行已从签到剥离为独立排程（travel_hours），不再搭签到便车。
-// 末尾追加连登管家（streak.go）：可兑换档位自动兑换 + 抽奖次数自动抽完——
-// 连登兑换按天数解锁，挂在每日签到后即「到天数那天自动完成兑换→抽奖闭环」。
-func (s *Scheduler) RunCheckinNow() {
+// 末尾追加连登管家（streak.go）：可兑换档位自动兑换 + 抽奖次数自动抽完。
+func (s *Scheduler) runCheckin(realm string) {
 	for _, st := range s.cfg.Pool.List() {
+		if realm != "" && st.Realm != realm {
+			continue
+		}
 		if st.Disabled {
 			continue
 		}
@@ -360,20 +367,18 @@ func (s *Scheduler) RunCheckinNow() {
 }
 
 // RunActivityNow 立即对池内所有可用账号执行一次对话活跃上报。
-// 禁用账号跳过；无 AccessToken 的跳过；账号间限速 activityAccountDelay。
-// 一条上报同时点亮 growth 连登 + 解锁 first_buddy 任务。
-// 上报成功后续跑 streak 自检（checkActivityStreak）：回读连登天数，发现
-// 「上报 200 但 streak 没涨」的静默丢弃（只读 oracle，不做重试）。
-// RunActivityNow 是无 ctx 的外部入口（面板/测试一次性触发）；排程主循环走
-// runActivity（ctx 取消时立即放弃剩余账号，不等限速睡满）。
-func (s *Scheduler) RunActivityNow() {
-	s.runActivity(context.Background())
-}
+func (s *Scheduler) RunActivityNow() { s.runActivity(context.Background(), "") }
+
+// RunActivityForRealm 只处理指定 WorkBuddy 分区；空串保持旧的全量语义。
+func (s *Scheduler) RunActivityForRealm(realm string) { s.runActivity(context.Background(), realm) }
 
 // runActivity 活跃上报遍历，随 ctx 取消立即退出。
-func (s *Scheduler) runActivity(ctx context.Context) {
+func (s *Scheduler) runActivity(ctx context.Context, realm string) {
 	first := true
 	for _, st := range s.cfg.Pool.List() {
+		if realm != "" && st.Realm != realm {
+			continue
+		}
 		if st.Disabled {
 			continue
 		}
@@ -420,12 +425,18 @@ func (s *Scheduler) checkActivityStreak(a *auth.Auth) bool {
 	return false
 }
 
-// RunKeepaliveNow 立即对所有账号刷新 token；session 死亡的自动禁用。
-// 12153 禁用走 Pool.NoteSessionDead 的**连续计数**语义：一次刷新失败不再立即杀号，
-// 连续 sessionDeadThreshold 次（3 次）才禁用（P0-1：13 个 disabled 号全是历史误判）。
-// 刷新成功 → ClearSessionDead 清计数（错误判定的账号有复活路径）。
-func (s *Scheduler) RunKeepaliveNow() {
+// RunKeepaliveNow 立即对所有账号刷新 token。
+func (s *Scheduler) RunKeepaliveNow() { s.runKeepalive("") }
+
+// RunKeepaliveForRealm 只处理指定 WorkBuddy 分区；空串保持旧的全量语义。
+func (s *Scheduler) RunKeepaliveForRealm(realm string) { s.runKeepalive(realm) }
+
+// runKeepalive session 死亡的自动禁用；连续失败达到阈值才禁用。
+func (s *Scheduler) runKeepalive(realm string) {
 	for _, st := range s.cfg.Pool.List() {
+		if realm != "" && st.Realm != realm {
+			continue
+		}
 		if st.Disabled {
 			continue
 		}

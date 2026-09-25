@@ -75,9 +75,11 @@ type Status struct {
 	// 仅「带解析时间 6004」触发的模型级独立冷却（modelCooldowns 未到期条目）时非空，
 	// 每模型一行；运维据此看到"账号 A 的模型 X 还在限额中，预计 Z 时间恢复"。到期即消失（零回归）。
 	RateLimitedModels []RateLimitedModel `json:"rate_limited_models,omitempty"`
-	// Realm 账号域（cn/global，auth.Realm() 计算值；含 global.enabled 开关闸）。
-	// 供面板/状态接口按域分组展示。
-	Realm           string     `json:"realm,omitempty"`
+	// Realm 兼容字段（cn/global，历史 API 继续使用）。
+	Realm string `json:"realm,omitempty"`
+	// Channel 是面向新维护空间的稳定渠道 ID（wbp-cn / wbp-global）。
+	// 它与 Realm 并存：Realm 兼容旧路由，Channel 用于面板账户隔离。
+	Channel         string     `json:"channel,omitempty"`
 	Disabled        bool       `json:"disabled"`
 	DisabledReason  string     `json:"disabled_reason,omitempty"` // 仅 disabled 账号：禁用原因（运维可见）
 	SuccessCount    int64      `json:"success_count,omitempty"`

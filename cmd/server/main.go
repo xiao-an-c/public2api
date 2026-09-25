@@ -215,6 +215,12 @@ func main() {
 		log.Printf("余额后台刷新：每 %s（签到时点照常额外刷新）", cfg.BalanceRefreshInterval)
 	}
 
+	// 渠道注册表：服务层、面板维护空间与对外目录共享同一份实例。
+	channels, err := channel.NewRegistry(channel.Catalog()...)
+	if err != nil {
+		log.Fatalf("渠道目录自检失败: %v", err)
+	}
+
 	// 管理面板日志镜像：标准 log（stderr）与 chat 表格日志（stdout）双路复制进
 	// 面板环形缓冲，供 /panel/api/logs 读取；控制台输出行为完全不变。
 	// live 承载可热改字段（api_key/soft_rate/脱敏开关），面板保存配置时在线替换。
@@ -245,6 +251,7 @@ func main() {
 		// 模型上限探测数据（scripts/probe_max_tokens.py --panel-out 写入）：
 		// 与 state 文件同目录，缺省 data/output_probes.json。
 		ProbeFile:  stateSibling(cfg.StateFile, "output_probes.json"),
+		Channels:   channels,
 		ConfigPath: *cfgPath,
 		LoadConfig: func() (any, error) {
 			return Load(*cfgPath)
@@ -256,12 +263,6 @@ func main() {
 	log.SetOutput(io.MultiWriter(os.Stderr, pn.Logs()))
 	server.SetChatLogOutput(io.MultiWriter(os.Stdout, pn.Logs()))
 
-	// 渠道注册表：服务层遍历「域」、面板渲染渠道维度、API Key 的渠道作用域
-	// 都从它取。内置目录自检失败是编程错误，直接终止启动。
-	channels, err := channel.NewRegistry(channel.Catalog()...)
-	if err != nil {
-		log.Fatalf("渠道目录自检失败: %v", err)
-	}
 	// 漂移守卫：渠道声明与适配器实现不一致时拒绝启动。
 	// 带着漂移启动等于对外提供一个「点了没反应」的能力——宁可不启动。
 	// 目前适配器注册表为空（四条链路都还没接入），未接入不算漂移。

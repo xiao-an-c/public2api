@@ -6,20 +6,29 @@ package channel
 // 标了 TODO(grilling) 的地方是**尚未逐行核实**的分配——grilling 阶段要把它们钉死，
 // 在那之前不要当成事实使用。
 
-// wbpCapabilities 是 WorkBuddy 账号类型的能力集合。
-//
-// 国内与国际**共用这一份**：两边的登录流程、凭据结构、上游协议完全相同，
-// 差异只在端点，而端点属于渠道配置。能力上不做区分是刻意的——
-// 一旦这里出现 `if realm == "global"`，就说明渠道抽象漏了。
-var wbpCapabilities = []Capability{
+// wbpChinaCapabilities 是 WorkBuddy 国内版的能力集合。
+// 国内版有独立的签到、成长任务与猫猫旅行维护空间。
+var wbpChinaCapabilities = []Capability{
 	CapOAuthLogin, // 插件 OAuth 三端点（state / token / account）
 	CapRefresh,    // refresh token 自动续期，提前 10 分钟
 	CapQuota,      // 积分可读，是选号依据
 	CapKeepalive,  // 定时保活
-	CapCheckin,    // 签到
-	CapTasks,      // 上学 / 旅游 / 活动
+	CapCheckin,    // 国内签到
+	CapTasks,      // 国内上学 / 旅游 / 活动任务
 	CapChat,
 	CapMedia, // 图片生成
+}
+
+// wbpGlobalCapabilities 是 WorkBuddy 国际版的能力集合。
+// 国际版目前没有国内版那套签到/成长任务端点；不能把“目录里有菜单”
+// 当成“后端可以执行”。保留额度与保活，后续核实出国际任务端点后再加能力。
+var wbpGlobalCapabilities = []Capability{
+	CapOAuthLogin,
+	CapRefresh,
+	CapQuota,
+	CapKeepalive,
+	CapChat,
+	CapMedia,
 }
 
 // grokEgress 说明：Grok 三条链路都经出口层发请求（TLS 指纹伪装 + 代理租约），
@@ -40,7 +49,7 @@ func Catalog() []Channel {
 			Kinds: []KindSpec{{
 				Kind:         KindWBP,
 				Name:         "WorkBuddy 账号",
-				Capabilities: wbpCapabilities,
+				Capabilities: wbpChinaCapabilities,
 			}},
 		},
 		{
@@ -52,7 +61,7 @@ func Catalog() []Channel {
 			Kinds: []KindSpec{{
 				Kind:         KindWBP,
 				Name:         "WorkBuddy 账号",
-				Capabilities: wbpCapabilities,
+				Capabilities: wbpGlobalCapabilities,
 			}},
 		},
 		{

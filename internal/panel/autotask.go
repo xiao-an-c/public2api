@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/xiao-an-c/public2api/internal/auth"
+	"github.com/xiao-an-c/public2api/internal/channel"
 	"github.com/xiao-an-c/public2api/internal/logfmt"
 	"github.com/xiao-an-c/public2api/internal/upstream"
 )
@@ -601,7 +602,7 @@ func runMiniExpert(p *Panel, a *auth.Auth) (string, error) {
 func (p *Panel) accountTaskAuto(w http.ResponseWriter, r *http.Request) {
 	uid := r.PathValue("uid")
 	a := p.accountByUID(w, uid)
-	if a == nil {
+	if a == nil || !p.requireAccountCapability(w, a, channel.CapTasks) {
 		return
 	}
 	var body struct {
@@ -1219,7 +1220,7 @@ func (p *Panel) runAutoAll(a *auth.Auth) []map[string]any {
 func (p *Panel) accountTaskAutoAll(w http.ResponseWriter, r *http.Request) {
 	uid := r.PathValue("uid")
 	a := p.accountByUID(w, uid)
-	if a == nil {
+	if a == nil || !p.requireAccountCapability(w, a, channel.CapTasks) {
 		return
 	}
 	// per-account 互斥（与单任务动作共用一把锁）：重复点击 409。

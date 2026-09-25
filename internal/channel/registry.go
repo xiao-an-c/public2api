@@ -68,16 +68,16 @@ func NewRegistry(channels ...Channel) (*Registry, error) {
 		if len(c.Kinds) == 0 {
 			return nil, fmt.Errorf("渠道 %s 没有任何账号类型", c.ID)
 		}
+		seenKinds := make(map[Kind]struct{}, len(c.Kinds))
 		for _, spec := range c.Kinds {
 			if strings.TrimSpace(string(spec.Kind)) == "" {
 				return nil, fmt.Errorf("渠道 %s 存在空的账号类型", c.ID)
 			}
 			// 同一个 Kind 在一个渠道内不能出现两次，否则能力并集会悄悄重复计入。
-			for _, existing := range c.Kinds {
-				if existing.Kind == spec.Kind && existing.Name != spec.Name {
-					return nil, fmt.Errorf("渠道 %s 重复声明账号类型 %s", c.ID, spec.Kind)
-				}
+			if _, dup := seenKinds[spec.Kind]; dup {
+				return nil, fmt.Errorf("渠道 %s 重复声明账号类型 %s", c.ID, spec.Kind)
 			}
+			seenKinds[spec.Kind] = struct{}{}
 			if len(spec.Capabilities) == 0 {
 				return nil, fmt.Errorf("%s/%s 没有声明任何能力", c.ID, spec.Kind)
 			}

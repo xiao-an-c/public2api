@@ -44,9 +44,17 @@ func travelDay(t time.Time) string {
 // RunTravelNow 立即对池内所有可用账号执行一趟旅行巡检。
 // 禁用账号跳过；401/查询失败只跳过该账号本轮（不强刷 token，交 22:00 keepalive）；
 // 账号间限速 travelAccountDelay。
-func (s *Scheduler) RunTravelNow() {
+func (s *Scheduler) RunTravelNow() { s.runTravel("") }
+
+// RunTravelForRealm 只处理指定 WorkBuddy 分区；空串保持旧的全量语义。
+func (s *Scheduler) RunTravelForRealm(realm string) { s.runTravel(realm) }
+
+func (s *Scheduler) runTravel(realm string) {
 	first := true
 	for _, st := range s.cfg.Pool.List() {
+		if realm != "" && st.Realm != realm {
+			continue
+		}
 		if st.Disabled {
 			continue
 		}
