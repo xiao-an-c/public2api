@@ -32,6 +32,10 @@
 > 只有 `[vault]` 的引用能在本机直接点开，其余三个是相邻仓库的相对路径。
 > 相关分析页：[[workbuddy2api-panel/index|workbuddy2api-panel]]、[[codex2api/index|codex2api]]、[[grok2api-chenyme/index|grok2api-chenyme]]、[[grok2api-jiujiu532/index|grok2api-jiujiu532]]。
 > 写作契约：[[写作规范]]（本页是计划文档，不适用其「两段式」硬要求，但**每条结论仍然带依据**）。
+>
+> **本页是真源。** 计划跟代码一起演进——§12 的未决项被消费时**就地标注**，
+> 实施中发现的与计划的偏差记在 [`docs/adr/`](./adr/)。
+> 笔记库里有一份同名副本，那份是**规划快照**，不再更新。
 
 ## 0. 结论先行：三句话
 
@@ -579,7 +583,7 @@ type Adapter interface {
 | 3 | **是否补 `/v1/responses` 与 `/v1/messages`** | 只 OpenAI / 全补 | **补 `/v1/responses`**（Grok 原生就是它，直通省一层转换）；`/v1/messages` 按需 |
 | 4 | **多实例部署** | 单机 SQLite / SQLite+Redis | 先**单机**；底子的 `internal/redisstore` 保留接口不启用 |
 | 5 | **渠道可见性开关**（照抄 codex2api） | 要 / 不要 | **要**——单机部署也会遇到「某渠道暂时全挂，想从面板藏起来」 |
-| 6 | **public2api 与底子的关系** | fork 后改 / 新仓库搬代码 | **新仓库搬代码**：底子的前端与配置要重写，fork 会背着历史包袱 |
+| 6 | ~~public2api 与底子的关系~~ **已定** | fork 后改 / 新仓库搬代码 | ✅ **新仓库搬代码**：底子的前端与配置要重写，fork 会背着历史包袱 |
 
 ## 13. 附录：本计划用到的实测数据
 
