@@ -1,4 +1,4 @@
-// main.go workbuddy2api 入口：加载配置、构建 pool、起调度器与 HTTP 服务。
+// main.go public2api 入口：加载配置、构建 pool、起调度器与 HTTP 服务。
 package main
 
 import (
@@ -29,8 +29,9 @@ import (
 	"github.com/xiao-an-c/public2api/internal/usage"
 )
 
-// appVersion 网关版本（fork 版：面板 + 任务体系），透出到 /panel/api/overview。
-const appVersion = "1.11.6-panel"
+// appVersion 网关版本，透出到 /panel/api/overview。
+// public2api 从 workbuddy2api-panel 搬运而来，版本号重新起算。
+const appVersion = "0.1.0"
 
 // usagePathFor 由 state 文件路径推出用量文件路径：同目录、文件名 usage.json。
 // 这样 config 里改 state_file 时用量数据跟着走，不需要额外配置项。
@@ -296,7 +297,7 @@ func main() {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	log.Printf("workbuddy2api listening on %s (api_key=%v)，管理面板 http://127.0.0.1%s/panel/", cfg.Listen, cfg.APIKey != "", panelListenPath(cfg.Listen))
+	log.Printf("public2api listening on %s (api_key=%v)，管理面板 http://127.0.0.1%s/panel/", cfg.Listen, cfg.APIKey != "", panelListenPath(cfg.Listen))
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("http: %v", err)
 	}
