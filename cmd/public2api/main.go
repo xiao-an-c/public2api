@@ -30,9 +30,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// TODO(grilling): 适配器注册表。目前为空——三条链路都还没接入，
+	// 适配器注册表（internal/adapter）。目前为空——四条链路都还没接入，
 	// 所以下面所有 kind 都会出现在「未接入」里。
-	var adapters []adapter.Adapter
+	adapters := adapter.All()
 
 	providers := make([]channel.Provider, 0, len(adapters))
 	for _, a := range adapters {
