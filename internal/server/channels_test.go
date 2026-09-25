@@ -131,3 +131,91 @@ func TestChannelRegistryIsInjected(t *testing.T) {
 		t.Error("出现了内置目录的 cn——说明回退到了内置目录而不是用注入的注册表")
 	}
 }
+
+// TestChannelsEndpointExposesCatalog 钉住 /v1/channels 的对外契约。
+//
+// 它是「渠道是一等公民」的对外证据，且**不依赖任何账号**——空池也照样说真话。
+func TestChannelsEndpointExposesCatalog(t *testing.T) {
+	h := NewHandler(Config{Pool: pool.New(""), Upstream: upstream.New()})
+
+	var body struct {
+		Channels []channelDTO `json:"channels"`
+	}
+	getJSONInto(t, h, "/v1/channels", &body)
+
+	if len(body.Channels) != 3 {
+		t.Fatalf("渠道数 = %d，期望 3", len(body.Channels))
+	}
+	byID := map[string]channelDTO{}
+	for _, c := range body.Channels {
+		byID[c.ID] = c
+	}
+
+	cn, ok := byID["wbp-cn"]
+	if !ok {
+		t.Fatal("缺少 wbp-cn")
+	}
+	if cn.Name != "WorkBuddy 国内" || cn.UpstreamHost != "codebuddy.cn" {
+		t.Errorf("wbp-cn 展示信息不对：%+v", cn)
+	}
+	if cn.Partition != "cn" {
+		t.Errorf("wbp-cn 的 partition = %q，期望 cn（适配器据此走 pool 的分区过滤）", cn.Partition)
+	}
+
+	gk, ok := byID["grok"]
+	if !ok {
+		t.Fatal("缺少 grok")
+	}
+	if len(gk.Kinds) != 3 {
+		t.Fatalf("grok 的账号类型数 = %d，期望 3（web / build / console）", len(gk.Kinds))
+	}
+	if gk.Partition != "" {
+		t.Errorf("grok 不该有 partition（它没有「域」这个维度），实际 %q", gk.Partition)
+	}
+}
+
+// TestChannelsMenuIsDerivedFromCapabilities 钉住「菜单由能力派生」在 API 上可见：
+// WorkBuddy 有签到与任务、没有出口；Grok 有出口、没有签到与任务。
+//
+// 菜单若哪天变成前端配置，这条会红。
+func TestChannelsMenuIsDerivedFromCapabilities(t *testing.T) {
+	h := NewHandler(Config{Pool: pool.New(""), Upstream: upstream.New()})
+
+	var body struct {
+		Channels []channelDTO `json:"channels"`
+	}
+	getJSONInto(t, h, "/v1/channels", &body)
+
+	menuOf := func(id string) map[string]string {
+		for _, c := range body.Channels {
+			if c.ID == id {
+				out := map[string]string{}
+				for _, m := range c.Menu {
+					out[m.Capability] = m.Label
+				}
+				return out
+			}
+		}
+		t.Fatalf("找不到渠道 %s", id)
+		return nil
+	}
+
+	cn := menuOf("wbp-cn")
+	if cn["ops.checkin"] != "签到" {
+		t.Errorf("wbp-cn 应当有签到菜单，实际：%v", cn)
+	}
+	if cn["ops.tasks"] != "任务" {
+		t.Errorf("wbp-cn 应当有任务菜单，实际：%v", cn)
+	}
+	if _, has := cn["ops.egress"]; has {
+		t.Errorf("wbp-cn 不该有出口菜单，实际：%v", cn)
+	}
+
+	gk := menuOf("grok")
+	if gk["ops.egress"] != "出口" {
+		t.Errorf("grok 应当有出口菜单，实际：%v", gk)
+	}
+	if _, has := gk["ops.checkin"]; has {
+		t.Errorf("grok 不该有签到菜单，实际：%v", gk)
+	}
+}

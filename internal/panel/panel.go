@@ -251,6 +251,16 @@ func (p *Panel) models(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]any, 0)
 	var fetchErrs []string
 
+	// 注意：这里**刻意不**像 healthz/status 那样「遍历渠道」。
+	//
+	// 两个域的模型探测逻辑**真的不同**：CN 走 FetchModels，global 走
+	// FetchGlobalModelInfos + GlobalEffortSnapshot（不同端点、不同 effort 来源）。
+	// 那是上游差异，不是渠道差异——改成统一遍历等于把真实差异抹平，
+	// 得到一个看似整齐、实则错误的抽象。
+	//
+	// 这套差异该由渠道适配器封装（WorkBuddy 适配器内部按 Partition 分派），
+	// 而不是在面板层用循环假装两者一样。
+
 	// CN 域：有可用 CN 账号才查（此前无条件 Pool.Pick()+FetchModels——选中 global
 	// 账号时打 CN 端点必然失败，混合池表现为偶发 502，纯 global 池必炸）。
 	if uids := p.cfg.Pool.AvailableUIDsForRealm("cn"); len(uids) > 0 {
