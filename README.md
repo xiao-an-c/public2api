@@ -6,21 +6,11 @@
 
 ## 当前状态：骨架
 
-已就位：
-
-- **渠道目录**（`internal/channel`）——3 渠道 × 4 种账号类型 × 12 项能力，
-  每条能力分配都带来源依据
-- **漂移守卫**（`Registry.Drift`）——装配期核对「渠道声明」与「适配器实现」，
-  双向查空头承诺与隐性能力
-- **账号模型**（`internal/account`）——连续量健康分、账号级与模型级两级冷却
-- **存储层**（`internal/store`）——SQLite 迁移，9 张表，含幂等与约束测试
-
-尚未开始：**所有适配器**。四条链路（`wbp` / `grok_web` / `grok_build` /
-`grok_console`）都还没有实现，所以还没有对外端点。
+**还不能用**——四条链路（`wbp` / `grok_web` / `grok_build` / `grok_console`）都还没有
+适配器，所以还没有对外端点。渠道目录、能力模型、漂移守卫与存储层已就位。
 
 ```sh
-go run ./cmd/public2api          # 打印能力矩阵、接入进度与漂移检查
-go test ./...
+go run ./cmd/public2api   # 打印能力矩阵与接入进度
 ```
 
 ## 三个渠道
@@ -31,15 +21,13 @@ go test ./...
 | `wbp-global` | `workbuddy.ai` | `wbp` | 同上（账号体系独立于国内） |
 | `grok` | `grok.com` / `console.x.ai` | `grok_web`、`grok_build`、`grok_console` | 出口治理、联网搜索 |
 
-**为什么 WorkBuddy 要拆成两个**：国内版与国际版是两套独立账号体系——登录端点不同、
-凭据不通用、额度各算。合成一个渠道，任何一侧的限流或改版都会污染另一侧的调度决策。
-
-**为什么 Grok 是一个渠道三种账号**：三条入口的登录方式和凭证形态完全不同，但在调用方
-眼里是同一个 Grok。所以它们作为**账号类型**并列，而不是三个渠道。
+**为什么 WorkBuddy 拆两个、Grok 不拆**：判据是「账号体系是否独立 + 运维策略是否要分开配」。
+国内与国际是两套账号（端点不同、凭据不通用、额度各算）；Grok 三条入口共用同一份账号，
+所以做成一个渠道下的三种账号类型。完整判据见 [`CONTEXT.md`](./CONTEXT.md)。
 
 ## 能力驱动面板
 
-渠道维护空间的二级菜单**不是前端配置**，是渠道能力声明的派生：
+渠道维护空间的二级菜单由能力声明派生：
 
 ```
 WorkBuddy 国内          Grok
@@ -69,6 +57,6 @@ WorkBuddy 国内          Grok
 GOPROXY=https://goproxy.cn,direct go mod tidy
 ```
 
-**凭据永不落明文。** 详见 [`docs/adr/0002`](./docs/adr/0002-credential-encryption.md)。
+**凭据加密后落库，密钥不可更换。** 详见 [`docs/adr/0002`](./docs/adr/0002-credential-encryption.md)。
 
 **迁移只增不改。** `internal/store` 里已发布的迁移条目不可修改，改结构加新的一条。
