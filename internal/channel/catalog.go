@@ -36,6 +36,7 @@ func Catalog() []Channel {
 			Name:         "WorkBuddy 国内",
 			UpstreamHost: "codebuddy.cn",
 			Sort:         10,
+			Partition:    "cn", // 底子的 realm，池级过滤沿用它的机制
 			Kinds: []KindSpec{{
 				Kind:         KindWBP,
 				Name:         "WorkBuddy 账号",
@@ -47,6 +48,7 @@ func Catalog() []Channel {
 			Name:         "WorkBuddy 国际",
 			UpstreamHost: "workbuddy.ai",
 			Sort:         20,
+			Partition:    "global",
 			Kinds: []KindSpec{{
 				Kind:         KindWBP,
 				Name:         "WorkBuddy 账号",
@@ -58,6 +60,7 @@ func Catalog() []Channel {
 			Name:         "Grok",
 			UpstreamHost: "grok.com",
 			Sort:         30,
+			// Partition 留空：Grok 没有「域」这个维度，它的三条链路靠 Kind 区分。
 			Kinds: []KindSpec{
 				{
 					Kind: KindGrokWeb,

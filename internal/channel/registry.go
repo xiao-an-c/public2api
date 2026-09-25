@@ -113,6 +113,20 @@ func (r *Registry) ChannelsOf(k Kind) []ChannelID {
 	return append([]ChannelID(nil), r.byKind[k]...)
 }
 
+// Partitioned 返回所有声明了上游分区的渠道，按展示顺序。
+//
+// 服务层遍历「域」时用它，而不是写死 cn/global——加一个带分区的渠道，
+// 分域统计就自动多一项，不需要改任何调用点。
+func (r *Registry) Partitioned() []Channel {
+	var out []Channel
+	for _, c := range r.order {
+		if c.Partition != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // Kinds 按渠道展示顺序返回去重后的全部账号类型。
 func (r *Registry) Kinds() []Kind {
 	seen := make(map[Kind]struct{})

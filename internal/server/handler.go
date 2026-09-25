@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/xiao-an-c/public2api/internal/auth"
+	"github.com/xiao-an-c/public2api/internal/channel"
 	"github.com/xiao-an-c/public2api/internal/httpauth"
 	"github.com/xiao-an-c/public2api/internal/livecfg"
 	"github.com/xiao-an-c/public2api/internal/logfmt"
@@ -57,6 +58,12 @@ type Config struct {
 	// false（显式逃生门）时即便 auth realm=global 也不提供 global: 模型名
 	// （modelList 不列 global 名单）。
 	GlobalEnabled bool
+
+	// Channels 渠道注册表。服务层遍历「域」时用它，而不是写死 cn/global——
+	// 加一个带分区的渠道，分域统计自动多一项，调用点不用改。
+	//
+	// nil 时回退到内置目录（channel.Catalog()），测试与裸用场景无需显式注入。
+	Channels *channel.Registry
 
 	// Usage 逐请求用量记录器（可选；nil = 不记录）。
 	// 在 recordAttempt 这一唯一汇聚点调用，因此流式/非流式、成功/失败都会计入，
@@ -102,6 +109,9 @@ type Handler struct {
 	cfg     Config
 	mux     *http.ServeMux
 	degrade degradeGate
+	// channels 是解析后的渠道注册表（cfg.Channels 为 nil 时回退内置目录）。
+	// 构造时解析一次，请求路径上只读。
+	channels *channel.Registry
 	// wafIP WAF IP 级拦截状态机（fail-fast，wafip.go）：短窗多号 WAF 403 →
 	// 激活期轮转遇 WAF 403 直接终止（不放大请求量）。进程内状态、重启清零。
 	wafIP wafIPGate
@@ -121,7 +131,15 @@ func NewHandler(cfg Config) *Handler {
 	if cfg.PromptMode == "" {
 		cfg.PromptMode = "custom" // 缺省 custom：网关自有提示词
 	}
-	h := &Handler{cfg: cfg, mux: http.NewServeMux()}
+	if cfg.Channels == nil {
+		reg, err := channel.NewRegistry(channel.Catalog()...)
+		if err != nil {
+			// 内置目录自检失败是编程错误，不是运行期状况——早炸比静默降级好。
+			panic("内置渠道目录自检失败: " + err.Error())
+		}
+		cfg.Channels = reg
+	}
+	h := &Handler{cfg: cfg, mux: http.NewServeMux(), channels: cfg.Channels}
 	h.mux.HandleFunc("POST /v1/chat/completions", h.withAuth(h.chatCompletions))
 	h.mux.HandleFunc("GET /v1/models", h.withAuth(h.models))
 	h.mux.HandleFunc("GET /status", h.withAuth(h.status))
@@ -146,6 +164,28 @@ func (h *Handler) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// realmServable 按渠道遍历「域可服务性」。
+//
+// 键是渠道的上游分区标识（WorkBuddy 的 cn / global），所以对外契约与改造前
+// **完全一致**；差别在于它现在由渠道注册表驱动——加一个带分区的渠道，
+// 这里自动多一个键，不需要改本函数。
+func (h *Handler) realmServable() map[string]bool {
+	out := make(map[string]bool)
+	for _, c := range h.channels.Partitioned() {
+		out[c.Partition] = h.cfg.Pool.ServableForRealm(c.Partition)
+	}
+	return out
+}
+
+// realmTotals 按渠道遍历分域计数汇总，理由同 realmServable。
+func (h *Handler) realmTotals() map[string]map[string]int {
+	out := make(map[string]map[string]int)
+	for _, c := range h.channels.Partitioned() {
+		out[c.Partition] = countsMapFrom(h.cfg.Pool.CountsDetailedForRealm(c.Partition))
+	}
+	return out
+}
+
 func (h *Handler) healthz(w http.ResponseWriter, r *http.Request) {
 	total, healthy, _, _, _ := h.cfg.Pool.CountsDetailed()
 	// 用 ServableNow 判定：healthy>0 但全占满在途时 chat 会 503，探活必须同口径，
@@ -156,10 +196,7 @@ func (h *Handler) healthz(w http.ResponseWriter, r *http.Request) {
 	}
 	// realm_servable 域可服务维度：不改判活语义（存在性探活保持不变），
 	// 只新增 CN/global 各自可达性供双域部署运维观察（任一域不可用单独告警）。
-	realmServable := map[string]bool{
-		"cn":     h.cfg.Pool.ServableForRealm("cn"),
-		"global": h.cfg.Pool.ServableForRealm("global"),
-	}
+	realmServable := h.realmServable()
 	// 恒无鉴权（负载均衡/编排探活只需 2xx/503 语义），身份靠 service 字段 + X-Service 头双保险。
 	w.Header().Set("X-Service", ServiceName)
 	writeJSON(w, status, map[string]any{
@@ -193,10 +230,7 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 		"in_flight_full": inFlightFull,
 		// realm_totals 按域分组的计数汇总（双 realm 并存时运维一眼看到各域可用性）：
 		// 只新增字段，既有 total/healthy/cooling/disabled/in_flight_full 汇总键不变（零回归）。
-		"realm_totals": map[string]map[string]int{
-			"cn":     countsMapFrom(h.cfg.Pool.CountsDetailedForRealm("cn")),
-			"global": countsMapFrom(h.cfg.Pool.CountsDetailedForRealm("global")),
-		},
+		"realm_totals":    h.realmTotals(),
 		"sticky_sessions": sticky,
 		"redis_mode":      redisMode,
 		// cost_explore 事件与 per-model 时间戳（时间值由 encoding/json 写 RFC3339）。

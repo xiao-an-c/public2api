@@ -17,7 +17,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/xiao-an-c/public2api/internal/adapter"
 	"github.com/xiao-an-c/public2api/internal/auth"
+	"github.com/xiao-an-c/public2api/internal/channel"
 	"github.com/xiao-an-c/public2api/internal/livecfg"
 	"github.com/xiao-an-c/public2api/internal/panel"
 	"github.com/xiao-an-c/public2api/internal/pool"
@@ -254,6 +256,32 @@ func main() {
 	log.SetOutput(io.MultiWriter(os.Stderr, pn.Logs()))
 	server.SetChatLogOutput(io.MultiWriter(os.Stdout, pn.Logs()))
 
+	// 渠道注册表：服务层遍历「域」、面板渲染渠道维度、API Key 的渠道作用域
+	// 都从它取。内置目录自检失败是编程错误，直接终止启动。
+	channels, err := channel.NewRegistry(channel.Catalog()...)
+	if err != nil {
+		log.Fatalf("渠道目录自检失败: %v", err)
+	}
+	// 漂移守卫：渠道声明与适配器实现不一致时拒绝启动。
+	// 带着漂移启动等于对外提供一个「点了没反应」的能力——宁可不启动。
+	// 目前适配器注册表为空（四条链路都还没接入），未接入不算漂移。
+	providers := make([]channel.Provider, 0, len(adapter.All()))
+	for _, a := range adapter.All() {
+		providers = append(providers, channel.Provider{
+			Kind:         a.Kind(),
+			Capabilities: a.Capabilities(),
+		})
+	}
+	if drifts := channels.Drift(providers); len(drifts) > 0 {
+		for _, d := range drifts {
+			log.Printf("✗ %s", d.Error())
+		}
+		log.Fatalf("装配中止：渠道声明与适配器实现不一致（%d 处）", len(drifts))
+	}
+	log.Printf("渠道 %d 个（分区 %d 个），账号类型 %d 种，已接入 %d 种",
+		len(channels.All()), len(channels.Partitioned()),
+		len(channels.Kinds()), len(channels.Kinds())-len(channels.Unimplemented(providers)))
+
 	h := server.NewHandler(server.Config{
 		Pool:         p,
 		Upstream:     up,
@@ -269,6 +297,7 @@ func main() {
 		PromptText:   cfg.PromptText,
 		// handler 侧第三道闸（global realm）：false（显式逃生门）时不列 global: 模型名。
 		GlobalEnabled: cfg.Global.Enabled,
+		Channels:      channels,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

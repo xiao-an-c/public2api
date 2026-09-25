@@ -120,6 +120,17 @@ type Channel struct {
 	UpstreamHost string // 上游主机，供面板展示与出口策略参考
 	Kinds        []KindSpec
 	Sort         int // 面板展示顺序
+
+	// Partition 是该渠道在账号池里的**上游分区标识**，空串表示不分区。
+	//
+	// channel 包只负责携带它，**不解释**它——解释权在渠道适配器。这是刻意的：
+	// 「账号怎么分区」是各上游自己的事，不是一个通用概念。
+	//
+	//	WorkBuddy：适配器把它当作底子既有的 realm（"cn" / "global"）传给 pool 的
+	//	          分区过滤（AvailableUIDsForRealm 等）。底子那套机制已经成熟，
+	//	          渠道层复用它，而不是另起一套分区概念。
+	//	Grok：没有这个维度，留空。
+	Partition string
 }
 
 // Capabilities 返回渠道能力集合——它的所有账号类型能力的并集，去重并排序。
